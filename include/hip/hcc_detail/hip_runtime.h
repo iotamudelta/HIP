@@ -161,8 +161,9 @@ extern int HIP_TRACE_API;
 // misc
 #define __HIP_ARCH_HAS_SURFACE_FUNCS__ (0)
 #define __HIP_ARCH_HAS_3DGRID__ (1)
+#if !__HIP__
 #define __HIP_ARCH_HAS_DYNAMIC_PARALLEL__ (0)
-
+#endif
 #endif /* Device feature flags */
 
 
@@ -264,19 +265,16 @@ extern "C" __device__ void* __hip_hc_free(void* ptr);
 static inline __device__ void* malloc(size_t size) { return __hip_hc_malloc(size); }
 static inline __device__ void* free(void* ptr) { return __hip_hc_free(ptr); }
 
-#ifdef __HCC_ACCELERATOR__
-
-#ifdef HC_FEATURE_PRINTF
+#if defined(__HCC_ACCELERATOR__) && defined(HC_FEATURE_PRINTF)
 template <typename... All>
 static inline __device__ void printf(const char* format, All... all) {
     hc::printf(format, all...);
 }
-#else
+#elif defined(__HCC_ACCELERATOR__) || __HIP__
 template <typename... All>
 static inline __device__ void printf(const char* format, All... all) {}
 #endif
 
-#endif
 #endif //__HCC_OR_HIP_CLANG__
 
 #ifdef __HCC__
@@ -346,6 +344,7 @@ extern void ihipPostLaunchKernel(const char* kernelName, hipStream_t stream, gri
 
 typedef int hipLaunchParm;
 
+#if 0
 #define hipLaunchKernel(kernelName, numblocks, numthreads, memperblock, streamId, ...)             \
     do {                                                                                           \
         kernelName<<<numblocks, numthreads, memperblock, streamId>>>(0, ##__VA_ARGS__);            \
@@ -355,7 +354,21 @@ typedef int hipLaunchParm;
     do {                                                                                           \
         kernelName<<<numblocks, numthreads, memperblock, streamId>>>(__VA_ARGS__);                 \
     } while (0)
+#else
+template <typename... Args, typename F = void (*)(Args...)>
+inline void hipLaunchKernelGGL(F kernelName, const dim3& numblocks, const dim3& numthreads,
+                               unsigned memperblock, hipStream_t streamId, Args... args) {
+  kernelName<<<numblocks, numthreads, memperblock, streamId>>>(args...);
+}
 
+template <typename... Args, typename F = void (*)(hipLaunchParm, Args...)>
+inline void hipLaunchKernel(F kernel, const dim3& numBlocks, const dim3& dimBlocks,
+                            std::uint32_t groupMemBytes, hipStream_t stream, Args... args) {
+    hipLaunchKernelGGL(kernel, numBlocks, dimBlocks, groupMemBytes, stream, hipLaunchParm{},
+                       std::move(args)...);
+}
+
+#endif
 #include <hip/hip_runtime_api.h>
 
 #pragma push_macro("__DEVICE__")
